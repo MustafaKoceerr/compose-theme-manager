@@ -14,3 +14,7 @@ public sealed interface ThemeState {
     /** The stored settings. */
     public data class Ready(val settings: ThemeSettings) : ThemeState
 }
+
+/** The stored settings once [ThemeState.Ready], the default [ThemeSettings] while [ThemeState.Loading]. */
+public val ThemeState.settingsOrDefault: ThemeSettings
+    get() = (this as? ThemeState.Ready)?.settings ?: ThemeSettings()
