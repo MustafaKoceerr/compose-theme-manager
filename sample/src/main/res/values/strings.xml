@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Theme Manager</string>
+    <string name="title">Theme</string>
+    <string name="theme_mode_system">System default</string>
+    <string name="theme_mode_light">Light</string>
+    <string name="theme_mode_dark">Dark</string>
+    <string name="dynamic_color">Dynamic color</string>
+    <string name="dynamic_color_description">Use colors from your wallpaper</string>
+    <string name="dynamic_color_unavailable">Requires Android 12 or later</string>
+    <string name="preview_title">Preview</string>
+    <string name="preview_body">Buttons and surfaces use the current color scheme.</string>
+    <string name="preview_filled">Filled</string>
+    <string name="preview_tonal">Tonal</string>
+    <string name="preview_outlined">Outlined</string>
+</resources>
