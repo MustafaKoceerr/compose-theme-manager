@@ -1,174 +1,244 @@
-# Compose Theme Manager (DataStore + Hilt)
+# Compose Theme Manager
 
-A small, production-ready theme manager for **Jetpack Compose Material 3**.  
-It persists the user’s theme choice via **DataStore Preferences** and exposes a clean, testable API with **use-cases** and a single **CoreTheme** entry point.
+[![CI](https://github.com/MustafaKoceerr/compose-theme-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/MustafaKoceerr/compose-theme-manager/actions/workflows/ci.yml)
+[![JitPack](https://jitpack.io/v/MustafaKoceerr/compose-theme-manager.svg)](https://jitpack.io/#MustafaKoceerr/compose-theme-manager)
 
-- ✅ Theme modes: **System / Light / Dark**
-- ✅ Persistence: **DataStore Preferences**
-- ✅ DI: **Hilt**
-- ✅ UI: **Material 3** + optional **Dynamic Color (Android 12+)**
+A lightweight Android library for **user-selectable themes in Jetpack Compose Material 3**: light / dark / follow
+system, plus optional dynamic color (Material You). The selection is persisted with Jetpack DataStore and exposed as a
+`StateFlow<ThemeState>`. It doesn't depend on any DI framework. Hilt support comes in an optional module.
 
----
+## How it works
+
+The library follows the approach of Google's [Now in Android](https://github.com/android/nowinandroid) reference app:
+
+- **Persistence:** `ThemeSettings` (mode + dynamic color) are stored in a Preferences DataStore, the single source of
+  truth.
+- **No theme flash on cold start:** reading DataStore is asynchronous, so `themeState` starts as `ThemeState.Loading`
+  and becomes `ThemeState.Ready` a few milliseconds later. Keep the splash screen up while loading and the first frame
+  is drawn with the user's theme.
+- **Readable system bars:** when the chosen theme differs from the device's (e.g. dark app on a light device),
+  `ManagedTheme` switches the status and navigation bar icons so they stay visible.
+- **Dynamic color** is applied on API 31+ and ignored below, where your own color schemes are used.
 
 ## Requirements
 
-- **Hilt: 2.54+ is required (minimum).**  
-  This library relies on the newer Hilt/KSP2-related setup introduced after 2.54; **Hilt versions below 2.54 are not supported and will not work.**
-
----
+- **minSdk 24**
+- Jetpack Compose with Material 3 (for `theme-manager-compose`)
 
 ## Installation (JitPack)
 
-**Step 1)** Add JitPack to `settings.gradle.kts`:
-
 ```kotlin
+// settings.gradle.kts
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
     }
 }
 ```
 
-**Step 2)** Add the dependency:
-
 ```kotlin
+// app/build.gradle.kts
 dependencies {
-    implementation("com.github.MustafaKoceerr:compose-theme-manager:1.0.4")
+    implementation("com.github.MustafaKoceerr.compose-theme-manager:theme-manager-compose:2.0.0")
+
+    // Optional (each includes theme-manager)
+    implementation("com.github.MustafaKoceerr.compose-theme-manager:theme-manager-hilt:2.0.0")
+    testImplementation("com.github.MustafaKoceerr.compose-theme-manager:theme-manager-testing:2.0.0")
 }
 ```
 
----
+To try an unreleased branch, use `<branch>-SNAPSHOT` as the version.
 
-## Public API
+## Modules
 
-### `AppThemeMode`
+| Module | Purpose |
+|---|---|
+| `:theme-manager` | Core API and DataStore persistence, no DI, no Compose |
+| `:theme-manager-compose` | `ManagedTheme`, `rememberThemeState()`, `ThemeMode.isDarkTheme()`, preview support |
+| `:theme-manager-hilt` | Optional Hilt module that provides `ThemeManager` as a singleton |
+| `:theme-manager-testing` | `FakeThemeManager` for unit tests and previews |
+| `:sample` | Compose demo app |
+
+## API
 
 ```kotlin
-enum class AppThemeMode { SYSTEM, LIGHT, DARK }
-```
+public enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
-### `CoreTheme(...)`
-
-Main entry point for applying theme logic and Material 3 styling.
-
-```kotlin
-@Composable
-fun CoreTheme(
-    themeMode: AppThemeMode = AppThemeMode.SYSTEM,   // optional
-    lightColorScheme: ColorScheme,
-    darkColorScheme: ColorScheme,
-    typography: Typography = MaterialTheme.typography, // optional
-    shapes: Shapes = MaterialTheme.shapes,             // optional
-    dynamicColor: Boolean = false,                     // optional (Android 12+)
-    content: @Composable () -> Unit
+public data class ThemeSettings(
+    val mode: ThemeMode = ThemeMode.SYSTEM,
+    val useDynamicColor: Boolean = false,
 )
+
+public sealed interface ThemeState {
+    data object Loading : ThemeState
+    data class Ready(val settings: ThemeSettings) : ThemeState
+}
+
+public interface ThemeManager {
+    val themeState: StateFlow<ThemeState>
+    suspend fun setThemeMode(mode: ThemeMode)
+    suspend fun setUseDynamicColor(enabled: Boolean)
+
+    companion object {
+        fun create(context: Context): ThemeManager // process-wide instance
+    }
+}
+
+public val ThemeState.settingsOrDefault: ThemeSettings // defaults while Loading
+public val isDynamicColorAvailable: Boolean            // API 31+
 ```
 
-### Use cases
+### `ManagedTheme` (`theme-manager-compose`)
 
-- `GetThemeModeUseCase(): Flow<AppThemeMode>`
-- `SetThemeModeUseCase(mode: AppThemeMode)`
+Replaces `MaterialTheme` at the root of your UI. Two overloads:
 
----
+```kotlin
+// Stateless: settings come from your UI state (e.g. a ViewModel)
+ManagedTheme(
+    settings = settings,
+    lightColorScheme = AppLightColors,
+    darkColorScheme = AppDarkColors,
+    typography = AppTypography,            // optional
+    shapes = AppShapes,                    // optional
+    applySystemBarsAppearance = true,      // optional
+) { /* content */ }
 
-## Usage Example (recommended)
+// Collects the settings itself from rememberThemeManager()
+ManagedTheme(lightColorScheme = AppLightColors, darkColorScheme = AppDarkColors) { /* content */ }
+```
 
-### 1) ViewModel
+## Usage
 
-Expose a `StateFlow<AppThemeMode>` and update it via use cases.
+### With Hilt
+
+Add `:theme-manager-hilt` and inject `ThemeManager`:
 
 ```kotlin
 @HiltViewModel
-class MainViewModel @Inject constructor(
-    getThemeModeUseCase: GetThemeModeUseCase,
-    private val setThemeModeUseCase: SetThemeModeUseCase
+class ThemeViewModel @Inject constructor(
+    private val themeManager: ThemeManager,
 ) : ViewModel() {
 
-    val themeMode: StateFlow<AppThemeMode> = getThemeModeUseCase()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = AppThemeMode.SYSTEM
-        )
+    val themeState: StateFlow<ThemeState> = themeManager.themeState
 
-    fun updateTheme(mode: AppThemeMode) {
-        viewModelScope.launch {
-            setThemeModeUseCase(mode)
-        }
+    fun onThemeModeSelected(mode: ThemeMode) {
+        viewModelScope.launch { themeManager.setThemeMode(mode) }
+    }
+
+    fun onDynamicColorChanged(enabled: Boolean) {
+        viewModelScope.launch { themeManager.setUseDynamicColor(enabled) }
     }
 }
 ```
 
-### 2) Apply `CoreTheme` in Activity / Root Composable
-
-This example uses **all CoreTheme parameters**, with optional ones clearly shown.
+Keep the splash screen until the theme is read ([`androidx.core:core-splashscreen`](https://developer.android.com/develop/ui/views/launch/splash-screen/migrate)),
+then apply it:
 
 ```kotlin
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: MainViewModel by viewModels()
+    private val viewModel: ThemeViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        splashScreen.setKeepOnScreenCondition { viewModel.themeState.value is ThemeState.Loading }
+
         setContent {
-            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-
-            // Provide your own Material 3 color schemes
-            val lightScheme: ColorScheme = TestLightColors
-            val darkScheme: ColorScheme = TestDarkColors
-
-            CoreTheme(
-                themeMode = themeMode,
-                lightColorScheme = lightScheme,
-                darkColorScheme = darkScheme,
-
-                // Optional:
-                typography = MaterialTheme.typography,
-                shapes = MaterialTheme.shapes,
-
-                // Optional (Android 12+). If true, dynamic colors override your schemes on supported devices.
-                dynamicColor = true
-            ) {
-                Surface(color = MaterialTheme.colorScheme.background) {
-                    ThemeSwitchingScreen(
-                        currentMode = themeMode,
-                        onThemeChange = { newMode -> viewModel.updateTheme(newMode) }
-                    )
-                }
+            val themeState by viewModel.themeState.collectAsStateWithLifecycle()
+            val settings = themeState.settingsOrDefault
+            ManagedTheme(settings, AppLightColors, AppDarkColors) {
+                SettingsScreen(
+                    settings = settings,
+                    onThemeModeSelected = viewModel::onThemeModeSelected,
+                    onDynamicColorChanged = viewModel::onDynamicColorChanged,
+                )
             }
         }
     }
 }
 ```
 
----
+See [`sample`](sample/src/main/java/com/mustafakoceerr/thememanager/sample) for the complete app, including the
+settings screen.
 
-## Notes
+### With another DI framework or none
 
-- If `dynamicColor = true` and the device supports it (**Android 12+**), the system dynamic color scheme is used.
-- If `dynamicColor = false`, your `lightColorScheme` / `darkColorScheme` are applied based on `themeMode`.
+`ThemeManager.create(context)` returns the process-wide instance; register it wherever your graph lives. With Koin:
 
----
+```kotlin
+val themeModule = module {
+    single { ThemeManager.create(androidContext()) }
+    viewModelOf(::ThemeViewModel)
+}
+```
+
+### Compose without a ViewModel
+
+```kotlin
+@Composable
+fun App() {
+    ManagedTheme(lightColorScheme = AppLightColors, darkColorScheme = AppDarkColors) {
+        val themeManager = rememberThemeManager()
+        val themeState by rememberThemeState(themeManager)
+        val scope = rememberCoroutineScope()
+        // render options, call scope.launch { themeManager.setThemeMode(...) }
+    }
+}
+```
+
+- `rememberThemeManager()` returns the process-wide manager. In `@Preview` it returns an in-memory manager, so
+  previews don't touch disk.
+- Use `LocalThemeManager` to provide a different manager, e.g. a fake in UI tests:
+  `CompositionLocalProvider(LocalThemeManager provides FakeThemeManager()) { ... }`
+- `ThemeMode.isDarkTheme()` resolves `SYSTEM` with `isSystemInDarkTheme()`.
+
+### Testing (`theme-manager-testing`)
+
+```kotlin
+val themeManager = FakeThemeManager(ThemeState.Ready(ThemeSettings(mode = ThemeMode.DARK)))
+val viewModel = ThemeViewModel(themeManager)
+
+viewModel.onThemeModeSelected(ThemeMode.LIGHT)
+assertThat(themeManager.setThemeModeCalls).containsExactly(ThemeMode.LIGHT)
+
+// Start in Loading and finish it later
+val loading = FakeThemeManager(ThemeState.Loading)
+loading.emit(ThemeState.Ready(ThemeSettings()))
+```
+
+## Migrating from 1.x
+
+| 1.x | 2.0 |
+|---|---|
+| `com.github.MustafaKoceerr:compose-theme-manager:1.0.4` | `com.github.MustafaKoceerr.compose-theme-manager:theme-manager-compose:2.0.0` (+ `theme-manager-hilt` if you use Hilt) |
+| `AppThemeMode` | `ThemeMode` |
+| `GetThemeModeUseCase()` | `themeManager.themeState` |
+| `SetThemeModeUseCase(mode)` | `themeManager.setThemeMode(mode)` |
+| `CoreTheme(themeMode, light, dark, typography, shapes, dynamicColor)` | `ManagedTheme(ThemeSettings(mode, useDynamicColor), light, dark, typography, shapes)` |
+| Hilt required (2.54+) | Any DI or none |
+
+The selection saved by 1.x is read by 2.0 as is; users keep their theme after the update.
+If your app relied on use cases, define them in your app's domain layer on top of `ThemeManager`.
 
 ## FAQ
 
-**Q: I set `dynamicColor = true`, but my `lightColorScheme` / `darkColorScheme` colors are not applied. Why?**  
-A: On Android 12+ devices, when `dynamicColor = true`, the system **Material You (dynamic)** colors take priority and will override the color schemes you pass in.  
-- If you always want to use your own colors: set `dynamicColor = false`.  
-- On unsupported devices (Android 11 and below): even if `dynamicColor = true`, your provided schemes are used automatically.
+**Q: The system splash screen is still light when the user chose Dark. Why?**
+A: The system draws the splash screen before any app code runs, so it follows the device theme. Everything the app
+draws, from the first frame on, uses the stored theme.
 
-**Q: Which theme is selected when `themeMode = SYSTEM`?**  
-A: The app follows the device’s system theme. If the system is dark, Dark is used; otherwise Light is used.
+**Q: Dynamic color is enabled but my color schemes are not used.**
+A: On API 31+ dynamic color replaces your schemes. Below API 31 it's ignored and your schemes are used. Use
+`isDynamicColorAvailable` to hide or disable the toggle on older devices.
 
-**Q: What is the default theme on first launch?**  
-A: If there is no stored value (or it is invalid), the library falls back to `AppThemeMode.SYSTEM`.
-
----
+**Q: What is the default on first launch?**
+A: `ThemeSettings()`: follow the system, dynamic color off.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE.txt](LICENSE.txt) for details.
