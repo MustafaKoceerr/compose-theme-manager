@@ -1,0 +1,14 @@
+# Module-specific build folder
+/build/
+
+# Compiled application files
+*.apk
+*.ap_
+*.aab
+*.dex
+
+# Google Services (Comment out if you want to share API keys in private repos)
+# google-services.json
+
+# Proguard folder
+proguard/
