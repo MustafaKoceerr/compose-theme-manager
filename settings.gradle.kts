@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ComposeThemeManager"
 include(":theme-manager")
+include(":theme-manager-testing")
