@@ -1,4 +1,5 @@
 pluginManagement {
+    includeBuild("build-logic")
     repositories {
         google {
             content {
@@ -20,4 +21,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ComposeThemeManager"
-include(":core")
+include(":theme-manager")
